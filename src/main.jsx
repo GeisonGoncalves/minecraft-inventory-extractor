@@ -1,9 +1,6 @@
-import {Buffer} from 'buffer';
- globalThis.Buffer=Buffer;
 import React,{useState} from 'react';
 import{createRoot}from'react-dom/client';
 import{readMcworld}from'mcbe-leveldb-reader';
-import*as nbt from'prismarine-nbt';
 import*as XLSX from'xlsx';
 import './style.css';
 
@@ -29,39 +26,48 @@ function decodeChunkKey(bytes){
  if(dimension<0||dimension>2)return null;
  return {chunkX:x,chunkZ:z,dimension,tag:bytes[tagIndex],tagIndex};
 }
+function parseBedrockNbt(bytes){
+ const data=bytes[0]===0x0a?bytes:new Uint8Array([0x0a,...bytes]);
+ const view=new DataView(data.buffer,data.byteOffset,data.byteLength);let p=0;
+ const u8=()=>{if(p+1>data.length)throw Error('NBT truncado');return data[p++];};
+ const i16=()=>{if(p+2>data.length)throw Error('NBT truncado');const v=view.getInt16(p,true);p+=2;return v;};
+ const u16=()=>{if(p+2>data.length)throw Error('NBT truncado');const v=view.getUint16(p,true);p+=2;return v;};
+ const i32=()=>{if(p+4>data.length)throw Error('NBT truncado');const v=view.getInt32(p,true);p+=4;return v;};
+ const i64=()=>{if(p+8>data.length)throw Error('NBT truncado');const v=view.getBigInt64(p,true);p+=8;return v.toString();};
+ const f32=()=>{if(p+4>data.length)throw Error('NBT truncado');const v=view.getFloat32(p,true);p+=4;return v;};
+ const f64=()=>{if(p+8>data.length)throw Error('NBT truncado');const v=view.getFloat64(p,true);p+=8;return v;};
+ const str=()=>{const n=u16();if(p+n>data.length)throw Error('String NBT truncada');const s=new TextDecoder().decode(data.subarray(p,p+n));p+=n;return s;};
+ const bytesArray=()=>{const n=i32();if(n<0||p+n>data.length)throw Error('ByteArray inválido');const a=Array.from(data.subarray(p,p+n));p+=n;return a;};
+ const payload=(type)=>{
+  switch(type){
+   case 1:return u8()>127?data[p-1]-256:data[p-1];
+   case 2:return i16();case 3:return i32();case 4:return i64();case 5:return f32();case 6:return f64();
+   case 7:return bytesArray();case 8:return str();
+   case 9:{const t=u8(),n=i32();if(n<0||n>1000000)throw Error('Lista NBT inválida');const a=[];for(let i=0;i<n;i++)a.push(payload(t));return a;}
+   case 10:{const o={};let guard=0;while(true){if(++guard>100000)throw Error('Compound NBT sem terminador');const t=u8();if(t===0)break;const k=str();o[k]=payload(t);}return o;}
+   case 11:{const n=i32();if(n<0||n>1000000)throw Error('IntArray inválido');const a=[];for(let i=0;i<n;i++)a.push(i32());return a;}
+   case 12:{const n=i32();if(n<0||n>1000000)throw Error('LongArray inválido');const a=[];for(let i=0;i<n;i++)a.push(i64());return a;}
+   default:throw Error('Tipo NBT desconhecido: '+type);
+  }
+ };
+ const rootType=u8();if(rootType!==10)throw Error('Raiz NBT não é Compound: '+rootType);
+ const rootName=str();const root=payload(10);
+ return {name:rootName,value:root,bytesRead:p};
+}
 async function parseRoots(buffer,diagnostics){
- const roots=[];let offset=0,guard=0;
- while(offset<buffer.length&&guard++<64){
-  const part=buffer.subarray(offset);
-  let parsedResult=null,lastError='';
-  for(const skip of [0,1,2,3]){
-   if(skip>=part.length)continue;
-   const candidate=part.subarray(skip);
-   const exact=candidate.buffer.slice(candidate.byteOffset,candidate.byteOffset+candidate.byteLength);
-   for(const format of ['little','littleVarint']){
-    try{
-     const result=await nbt.parse(exact,format);
-     if(result?.parsed){parsedResult={result,skip,format};break;}
-    }catch(e){lastError=String(e?.message||e);}
-   }
-   if(parsedResult)break;
-  }
-  if(!parsedResult){
-   if(!diagnostics.firstNbtError)diagnostics.firstNbtError=lastError;
-   if(!diagnostics.firstValueHex)diagnostics.firstValueHex=Array.from(part.slice(0,32)).map(v=>v.toString(16).padStart(2,'0')).join(' ');
-   break;
-  }
-  const parsed=parsedResult.result.parsed;
-  roots.push(parsed);
-  const consumed=parsedResult.result?.metadata?.size||part.length;
-  if(!consumed||consumed>part.length)break;
-  offset+=consumed;
+ try{
+  const parsed=parseBedrockNbt(buffer);
+  diagnostics.nbtBytesRead=parsed.bytesRead;
+  return [parsed.value];
+ }catch(e){
+  if(!diagnostics.firstNbtError)diagnostics.firstNbtError=String(e?.message||e);
+  if(!diagnostics.firstValueHex)diagnostics.firstValueHex=Array.from(buffer.slice(0,40)).map(v=>v.toString(16).padStart(2,'0')).join(' ');
+  return [];
  }
- return roots;
 }
 async function analyzeWorld(file,onProgress){
  const db=await readMcworld(file,{log:m=>onProgress(m),error:m=>onProgress(m)});
- const containers=[],slotRows=[],diagnostics={records:db.size,blockEntityRecords:0,roots:0,failedRoots:0,firstNbtError:'',firstValueHex:''};
+ const containers=[],slotRows=[],diagnostics={records:db.size,blockEntityRecords:0,roots:0,failedRoots:0,firstNbtError:'',firstValueHex:'',nbtBytesRead:0};
  let seen=0;
  for(const [,entry] of db){
   seen++;
