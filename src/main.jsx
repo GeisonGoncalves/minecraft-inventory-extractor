@@ -27,17 +27,33 @@ function decodeChunkKey(bytes){
  if(dimension<0||dimension>2)return null;
  return {chunkX:x,chunkZ:z,dimension,tag:bytes[tagIndex],tagIndex};
 }
-async function parseRoots(buffer){
+async function parseRoots(buffer,diagnostics){
  const roots=[];let offset=0,guard=0;
- while(offset<buffer.length&&guard++<256){
+ while(offset<buffer.length&&guard++<64){
   const part=buffer.subarray(offset);
-  try{
-   const exact=part.buffer.slice(part.byteOffset,part.byteOffset+part.byteLength);\n   const result=await nbt.parse(exact,'little');
-   const parsed=result?.parsed;
-   const consumed=result?.metadata?.size||0;
-   if(!parsed||!consumed||consumed>part.length)break;
-   roots.push(parsed);offset+=consumed;
-  }catch{break;}
+  let parsedResult=null,lastError='';
+  for(const skip of [0,1,2,3]){
+   if(skip>=part.length)continue;
+   const candidate=part.subarray(skip);
+   const exact=candidate.buffer.slice(candidate.byteOffset,candidate.byteOffset+candidate.byteLength);
+   for(const format of ['little','littleVarint']){
+    try{
+     const result=await nbt.parse(exact,format);
+     if(result?.parsed){parsedResult={result,skip,format};break;}
+    }catch(e){lastError=String(e?.message||e);}
+   }
+   if(parsedResult)break;
+  }
+  if(!parsedResult){
+   if(!diagnostics.firstNbtError)diagnostics.firstNbtError=lastError;
+   if(!diagnostics.firstValueHex)diagnostics.firstValueHex=Array.from(part.slice(0,32)).map(v=>v.toString(16).padStart(2,'0')).join(' ');
+   break;
+  }
+  const parsed=parsedResult.result.parsed;
+  roots.push(parsed);
+  const consumed=parsedResult.result?.metadata?.size||part.length;
+  if(!consumed||consumed>part.length)break;
+  offset+=consumed;
  }
  return roots;
 }
