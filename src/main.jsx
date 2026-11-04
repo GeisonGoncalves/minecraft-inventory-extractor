@@ -32,7 +32,7 @@ async function parseRoots(buffer){
  while(offset<buffer.length&&guard++<256){
   const part=buffer.subarray(offset);
   try{
-   const result=await nbt.parse(part,'little');
+   const exact=part.buffer.slice(part.byteOffset,part.byteOffset+part.byteLength);\n   const result=await nbt.parse(exact,'little');
    const parsed=result?.parsed;
    const consumed=result?.metadata?.size||0;
    if(!parsed||!consumed||consumed>part.length)break;
