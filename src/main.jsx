@@ -43,7 +43,7 @@ async function parseRoots(buffer){
 }
 async function analyzeWorld(file,onProgress){
  const db=await readMcworld(file,{log:m=>onProgress(m),error:m=>onProgress(m)});
- const containers=[],slotRows=[],diagnostics={records:db.size,blockEntityRecords:0,roots:0,failedRoots:0};
+ const containers=[],slotRows=[],diagnostics={records:db.size,blockEntityRecords:0,roots:0,failedRoots:0,firstNbtError:'',firstValueHex:''};
  let seen=0;
  for(const [,entry] of db){
   seen++;
@@ -52,7 +52,7 @@ async function analyzeWorld(file,onProgress){
   const keyInfo=decodeChunkKey(entry.keyBytes);
   if(!keyInfo||keyInfo.tag!==0x31)continue;
   diagnostics.blockEntityRecords++;
-  const roots=await parseRoots(entry.value);
+  const roots=await parseRoots(entry.value,diagnostics);
   if(!roots.length){diagnostics.failedRoots++;continue;}
   for(const root of roots){
    diagnostics.roots++;
@@ -83,7 +83,7 @@ function App(){
  const visible=result?.rows.filter(r=>filter==='Todos'||r.Dimensao===filter)||[];
  return <main><header><div className="logo">MC</div><div><h1>Inventário Minecraft Bedrock</h1><p>Leitura local de mundos .mcworld • seus arquivos não são enviados</p></div></header>
  <section className="panel"><h2>1. Selecione o mundo</h2><label className="drop"><input type="file" accept=".mcworld,.zip" onChange={e=>{setFile(e.target.files?.[0]||null);setResult(null)}}/><strong>{file?file.name:'Escolher arquivo .mcworld'}</strong><span>{file?(file.size/1024/1024).toFixed(1)+' MB':'Toque para procurar no dispositivo'}</span></label><button disabled={!file||busy} onClick={run}>{busy?'Analisando…':'Analisar mundo'}</button><div className="status">{status}</div></section>
- {result&&<><section className="panel"><h2>2. Resultado da leitura</h2><div className="metrics"><div><b>{result.diagnostics.records.toLocaleString('pt-BR')}</b><span>registros LevelDB</span></div><div><b>{result.diagnostics.blockEntityRecords.toLocaleString('pt-BR')}</b><span>registros BlockEntity</span></div><div><b>{result.containers.length.toLocaleString('pt-BR')}</b><span>contêineres identificados</span></div><div><b>{result.rows.length.toLocaleString('pt-BR')}</b><span>linhas de inventário</span></div></div><p className="small">Raízes NBT decodificadas: {result.diagnostics.roots.toLocaleString('pt-BR')} • Registros que não puderam ser interpretados: {result.diagnostics.failedRoots.toLocaleString('pt-BR')}</p><button disabled={!result.rows.length} onClick={exportXlsx}>Exportar Excel (3 dimensões)</button></section>
+ {result&&<><section className="panel"><h2>2. Resultado da leitura</h2><div className="metrics"><div><b>{result.diagnostics.records.toLocaleString('pt-BR')}</b><span>registros LevelDB</span></div><div><b>{result.diagnostics.blockEntityRecords.toLocaleString('pt-BR')}</b><span>registros BlockEntity</span></div><div><b>{result.containers.length.toLocaleString('pt-BR')}</b><span>contêineres identificados</span></div><div><b>{result.rows.length.toLocaleString('pt-BR')}</b><span>linhas de inventário</span></div></div><p className="small">Raízes NBT decodificadas: {result.diagnostics.roots.toLocaleString('pt-BR')} • Registros que não puderam ser interpretados: {result.diagnostics.failedRoots.toLocaleString('pt-BR')}<br/>Erro NBT: {result.diagnostics.firstNbtError||'não disponível'}<br/>Primeiros bytes: {result.diagnostics.firstValueHex||'não disponível'}</p><button disabled={!result.rows.length} onClick={exportXlsx}>Exportar Excel (3 dimensões)</button></section>
  <section className="panel"><div className="listHead"><h2>3. Listagem dos contêineres e itens</h2><select value={filter} onChange={e=>setFilter(e.target.value)}><option>Todos</option><option>Overworld</option><option>Nether</option><option>End</option></select></div>{visible.length?<div className="tableWrap"><table><thead><tr>{['Dimensão','Contêiner','X','Y','Z','Slot','Item','Qtd.','Nome personalizado','Encantamentos'].map(h=><th key={h}>{h}</th>)}</tr></thead><tbody>{visible.slice(0,1500).map((r,i)=><tr key={i}><td>{r.Dimensao}</td><td>{r.Tipo}</td><td>{r.X}</td><td>{r.Y}</td><td>{r.Z}</td><td>{r.Slot}</td><td>{r.Item}</td><td>{r.Quantidade}</td><td>{r.NomeDoItem||r.NomePersonalizado}</td><td>{r.Encantamentos}</td></tr>)}</tbody></table></div>:<p>Nenhum item/contêiner disponível para listar.</p>}{visible.length>1500&&<p className="small">Prévia limitada a 1.500 linhas. O Excel inclui todas.</p>}</section></>}
  <section className="panel"><h2>Sobre a leitura</h2><ul><li>Identifica registros BlockEntity pelo marcador binário oficial do Bedrock (0x31).</li><li>Interpreta NBT little-endian concatenado e extrai Items, slots e coordenadas.</li><li>Separa os resultados em Overworld, Nether e End.</li></ul><p className="warning">A validação deve ser feita com o resultado real do seu mundo. Registros vazios e contêineres sem itens são mantidos na listagem.</p></section><footer>Processamento no navegador. O arquivo original não é alterado.</footer></main>
 }
