@@ -1,0 +1,21 @@
+{
+  "name": "minecraft-inventory-extractor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "mcbe-leveldb-reader": "^5.0.1",
+    "prismarine-nbt": "^2.8.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {}
+}
